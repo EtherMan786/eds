@@ -11,6 +11,7 @@ import {
   loadSection,
   loadSections,
   loadCSS,
+  fetchPlaceholders,
 } from './aem.js';
 
 /**
@@ -40,6 +41,18 @@ async function loadFonts() {
   }
 }
 
+function autolinkModals(element) {
+  element.addEventListener('click', async (e) => {
+    const origin = e.target.closest('a');
+
+    if (origin && origin.href && origin.href.includes('/modals/')) {
+      e.preventDefault();
+      const { openModal } = await import(`${window.hlx.codeBasePath}/blocks/modal/modal.js`);
+      openModal(origin.href);
+    }
+  });
+}
+
 /**
  * Builds all synthetic blocks in a container element.
  * @param {Element} main The container element
@@ -65,6 +78,8 @@ export function decorateMain(main) {
   buildAutoBlocks(main);
   decorateSections(main);
   decorateBlocks(main);
+  decoratePlaceholder(main);
+
 }
 
 /**
@@ -96,6 +111,7 @@ async function loadEager(doc) {
  * @param {Element} doc The container element
  */
 async function loadLazy(doc) {
+  autolinkModals(doc);
   const main = doc.querySelector('main');
   await loadSections(main);
 
@@ -108,6 +124,71 @@ async function loadLazy(doc) {
 
   loadCSS(`${window.hlx.codeBasePath}/styles/lazy-styles.css`);
   loadFonts();
+}
+
+export async function decoratePlaceholder(block, path) {
+  try {
+    const resp = await fetchPlaceholders(path);
+    // return renderHelper([resp], `<div class="forName">${block.innerHTML}</div>`);
+    block.querySelectorAll('*').forEach((el, index) => {
+      if (el.firstChild instanceof Text) {
+        Object.keys(resp).forEach((key) => {
+          var value = resp[key];
+          if (value && value.trim() && el.firstChild.textContent.trim() && el.firstChild.textContent.includes(`{${key}}`)) {
+            console.log(el.innerHTML, " :: ", el.firstChild.textContent);
+            el.innerHTML = el.firstChild.textContent.replaceAll(`{${key}}`, value);
+          }
+          // if (value && value.trim() && !value.includes('<') && el.firstChild.textContent.trim() && el.firstChild.textContent.includes(`{${key}}`)) {
+          //   el.firstChild.textContent = el.firstChild.textContent.replaceAll(`{${key}}`, value);
+          // }else {
+
+          // }
+        });
+      }
+    });
+    return block.innerHTML;
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+export function renderHelper(data, template, callBack) {
+  const dom = document.createElement('div');
+  dom.innerHTML = template;
+  const loopEl = dom.getElementsByClassName('forName');
+  Array.prototype.slice.call(loopEl).forEach((eachLoop) => {
+    let templates = '';
+    const localtemplate = eachLoop.innerHTML;
+    for (const key in data) {
+      if (Object.hasOwnProperty.call(data, key)) {
+        const element = data[key];
+        // data.forEach(function (element, index) {
+        var dataItem = callBack ? callBack(element, key) : element;
+        const keys = Object.keys(dataItem);
+        var copyTemplate = localtemplate;
+        copyTemplate.split('{').forEach((ecahKey) => {
+          const key = ecahKey.split('}')[0];
+          const keys = key.split('.');
+          let value = dataItem;
+          keys.forEach((key) => {
+            if (value && value.hasOwnProperty(key)) {
+              // if (key === 'data-src') {
+              //   key = 'src';
+              // }
+              value = value[key];
+            } else {
+              value = '';
+            }
+          });
+          copyTemplate = copyTemplate.replace(`{${key}}`, value);
+        });
+        templates += copyTemplate;
+        // });
+      }
+    }
+    eachLoop.outerHTML = templates;
+  });
+  return dom.innerHTML;
 }
 
 /**
